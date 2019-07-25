@@ -1,0 +1,89 @@
+---
+- hosts: all
+  become: yes
+  become_method: sudo
+
+  tasks: 
+    - name: Install Apache
+      apt:
+        name: apache2
+        state: present
+
+    - name: Install a list of packages
+      apt:
+        name: "{{ packages }}"
+      vars:
+        packages:
+        - libapache2-mod-php
+        - php
+        - php-mcrypt
+        - php-cli
+        - php-curl
+        - php-mysql
+        - php-xmlrpc
+        - php-curl
+
+    - name: started apache2
+      service:
+        name: apache2
+        state: started
+        enabled: true
+
+    - name: install mysql
+      apt:
+        name: mysql-server
+        state: present
+    
+    - name: started mysql
+      service:
+        name: mysql-server
+        state: started
+        enabled: true
+    
+    - name: Create a new Databases
+      mysq_db:
+        name: wordpress
+        state: present
+        collation: utf8_general_ci
+
+    - name: Create a database user
+      mysql_user: 
+        name: db_user
+        password: db_pass
+        priv: '*.*:ALL,GRANT'
+        state: present
+    
+    - name: Download WordPress
+      get_url: 
+        url=https://wordpress.org/latest.tar.gz 
+        dest=/tmp/wordpress.tar.gz
+        validate_certs=no
+
+    - name: Extract WordPress
+      unarchive: src=/tmp/wordpress.tar.gz dest=/var/www/ copy=no
+      become: yes
+
+    - name: Update default Apache site
+      become: yes
+      lineinfile: 
+        dest=/etc/apache2/sites-enabled/000-default.conf 
+        regexp="(.)+DocumentRoot /var/www/html"
+        line="DocumentRoot /var/www/wordpress"
+      notify:
+        - restart apache
+
+    - name: Copy sample config file
+      command: mv /var/www/wordpress/wp-config-sample.php /var/www/wordpress/wp-config.php creates=/var/www/wordpress/wp-config.php
+      become: yes
+
+    - name: Update WordPress config file
+      lineinfile:
+        dest=/var/www/wordpress/wp-config.php
+        regexp="{{ item.regexp }}"
+        line="{{ item.line }}"
+      with_items:
+      - {'regexp': "define\\('DB_NAME', '(.)+'\\);", 'line': "define('DB_NAME', '{{wp_mysql_db}}');"}        
+      - {'regexp': "define\\('DB_USER', '(.)+'\\);", 'line': "define('DB_USER', '{{wp_mysql_user}}');"}        
+      - {'regexp': "define\\('DB_PASSWORD', '(.)+'\\);", 'line': "define('DB_PASSWORD', '{{wp_mysql_password}}');"}
+      become: yes
+---
